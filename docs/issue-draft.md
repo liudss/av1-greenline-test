@@ -1,0 +1,120 @@
+# Chromium issue draft
+
+Paste this into https://issues.chromium.org/issues/new?component=1456391 (Blink > Media > Video)
+after attaching the generated clips. Keep the numbers; they are measured, not estimated.
+
+---
+
+## Title
+
+AV1 hardware decode: green band at the top of the frame when the coded height is not a multiple of 8 (D3D11VideoDecoder, NV12)
+
+## Summary
+
+When an AV1 video's coded height is not a multiple of 8, the D3D11 hardware decode path paints a
+bright green band over the first `2 * (8 - height % 8)` luma rows. Luma is correct inside the band;
+chroma reads as zero (Y = 126, U = V = 0 renders `(0, 222, 0)` under BT.709 limited). Software
+decode and the HEVC path on the same machine are clean.
+
+The visible consequence is a 1-pixel bright green line at the top edge of the video, most obvious
+when the video is scaled into a player (e.g. 1920x886 content fitted into a 16:9 player).
+
+## Steps to reproduce
+
+Repository with the generated clips and the test page: https://github.com/liudss/av1-greenline-test
+
+1. Generate the clips: `tools/make-clips.ps1` (ffmpeg + libaom-av1; every clip is 1920 wide, flat
+   gray, 3 s, 30 fps, yuv420p, BT.709 limited, AV1 main, and differs only in height).
+2. Serve and open the page: `node serve.js` then http://127.0.0.1:8777/.
+3. Confirm hardware decode is in use (`chrome://media-internals` shows `kVideoDecoderName:
+   D3D11VideoDecoder`).
+4. Click "Scan all clips" for the measured table, or run `node tools/shot.js` to save one screenshot per clip.
+
+Minimal single-file repro: load `clips/av1_1920x886.mp4` in a `<video>` element and screenshot it.
+
+## Expected
+
+All clips look identical to their software-decoded output: uniform gray frame with a dark inner
+border, no colored rows anywhere.
+
+## Actual
+
+| clip | height % 8 | hardware decode | software decode (`--disable-accelerated-video-decode`) |
+| --- | --- | --- | --- |
+| 1920x886 | 6 | green rows 0–4 (peak g-max(r,b) = 223) | clean (peak 1) |
+| 1920x890 | 2 | green rows 0–11 (peak 223) | clean |
+| 1920x884 | 4 | green rows 0–7 (peak 223) | clean |
+| 1920x888 | 0 | clean | clean |
+| 1920x1080 | 0 | clean | clean |
+| 1920x1088 | 0 | clean | clean |
+| 1920x720 | 0 | clean | clean |
+
+Sampled pixels at the top of 1920x886, read back through `canvas.drawImage(video)`:
+
+```
+y=0   0,222,0
+y=1   0,222,0
+y=2   0,222,0
+y=3   0,199,0
+y=4   68,151,59     <- blended
+y=5   125,127,127   <- correct gray
+y=6   61,63,63      <- correct dark border, so luma is not shifted
+```
+
+`Y=126, U=V=0` in BT.709 limited range is exactly `(0, 223, 0)`, so the band is zeroed chroma over
+correct luma. Where the band crosses the dark inner border the pixel is `(0, 158, 0)` — same zeroed
+chroma over darker luma, confirming that only the chroma plane is affected.
+
+## Analysis
+
+The affected row count equals `2 * (8 - height % 8)`, i.e. exactly twice the number of luma padding
+rows needed to reach an 8-aligned height. NV12 chroma is subsampled 2:1 vertically, so a chroma
+plane offset of `k` rows covers `2k` luma rows. The numbers therefore match a chroma plane offset of
+`(8 - height % 8)` — the luma padding count applied to the chroma plane without dividing by two,
+or equivalently an uninitialized chroma region left inside the visible rect.
+
+Suggested places to check:
+
+- the NV12 plane offset / row pitch used when copying the decoded D3D11 texture into the output
+  texture (`single textures` + `shared handle` path is what we hit),
+- the D3D11 VideoProcessor stream and input rectangles when the coded size differs from the aligned
+  allocation size,
+- whether the aligned height passed to the decoder (DBP / allocation size) is being reused as the
+  frame's chroma height instead of `coded_height / 2`.
+
+Note that the CodedVideoFrame size reported by `chrome://media-internals` is already correct
+(`coded size = visible rect = 1920x886`), so this is not a container/crop-metadata problem.
+
+## Environment
+
+- Chrome 157.0.8103.79 (headless and windowed both reproduce; artifact also appears in
+  `Page.captureScreenshot`, so it is not a display/overlay artifact)
+- Windows 10 Home China, 26H2, build 26300
+- GPU: AMD Radeon 780M Graphics, driver 32.0.31041.1004 (2026-08-17), 2560x1600 @ 120 Hz
+- Decoder: `D3D11VideoDecoder` (D3D11 backend, NV12, shared handle, single textures),
+  `av1 profile main`, 4:2:0, 8-bit, BT.709 limited
+- Software decoder for AV1 on the same build: clean (`--disable-accelerated-video-decode`)
+
+## Attachments checklist
+
+- [ ] `clips/av1_1920x886.mp4` and `clips/av1_1920x1088.mp4` (repro + control)
+- [ ] full `chrome://gpu` dump
+- [ ] `chrome://media-internals` JSON for the 886 clip
+- [ ] screenshot showing the green line at the top edge
+- [ ] screenshot of the same clip with `--disable-accelerated-video-decode` (clean)
+
+## Workarounds observed in the wild
+
+- Serve the same content as HEVC or H.264 (both use different decoder paths here).
+- Disable hardware acceleration for video decode.
+- Watch in Firefox or mpv, which crop the frame correctly.
+
+---
+
+## Real-world instance
+
+Bilibili AV1 track, `coded size = visible rect = 1920x886`, `av1 profile main`, BT.709 limited,
+`D3D11VideoDecoder`. Green line at the top edge in Chrome/Edge; the same video is clean in Firefox
+and mpv, and clean in Chrome when the player is switched to HEVC.
+
+

@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AV1 edge green-line repro</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header>
+  <h1>AV1 edge green-line repro</h1>
+  <p class="sub">
+    One encoder, one picture, only the <strong>height</strong> changes. Used to check whether
+    Chromium's <code>D3D11VideoDecoder</code> + NV12 leaks green rows on frame heights that
+    are not a multiple of 8.
+  </p>
+</header>
+
+<section class="panel">
+  <div class="toolbar">
+    <button id="btnScan" class="primary">Scan all clips</button>
+    <button id="btnPlay">Play / pause</button>
+    <button id="btnFs">Fullscreen</button>
+
+    <span class="sep"></span>
+
+    <label class="field">
+      Display size
+      <select id="selScale">
+        <option value="1">1:1 native</option>
+        <option value="0.75">0.75x</option>
+        <option value="0.5">0.5x</option>
+        <option value="fit" selected>Fit width</option>
+      </select>
+    </label>
+
+    <label class="check">
+      <input type="checkbox" id="chkPixelated">
+      Disable interpolation
+    </label>
+
+    <span class="sep"></span>
+
+    <label class="file">
+      Local file
+      <input type="file" id="fileInput" accept="video/*">
+    </label>
+
+    <span class="sep"></span>
+
+    <button id="btnCopyGpu" class="ghost">Copy chrome://gpu hint</button>
+  </div>
+
+  <p id="status" class="status">
+    Idle. Click "Scan all clips". Decoder names are in <code>chrome://media-internals</code>,
+    which a web page cannot read.
+  </p>
+
+  <div id="stage" class="stage">
+    <video id="video" muted playsinline loop></video>
+    <div id="stageEmpty" class="stage-empty">Pick a clip to start</div>
+  </div>
+
+  <div class="strips">
+    <figure>
+      <figcaption>Top <span data-rows></span> rows (6x zoom)</figcaption>
+      <canvas id="stripTop" class="strip"></canvas>
+    </figure>
+    <figure>
+      <figcaption>Bottom <span data-rows></span> rows (6x zoom)</figcaption>
+      <canvas id="stripBot" class="strip"></canvas>
+    </figure>
+  </div>
+</section>
+
+<section class="panel">
+  <h2>Clips</h2>
+  <div id="clipList" class="clips"></div>
+</section>
+
+<section class="panel">
+  <h2>Results</h2>
+  <table class="results">
+    <thead>
+      <tr>
+        <th>Clip</th>
+        <th>Measured size</th>
+        <th title="height modulo 16">H % 16</th>
+        <th>Green rows (top)</th>
+        <th>Green rows (bottom)</th>
+        <th title="max of g - max(r,b); a neutral gray picture sits near 0">Peak green</th>
+        <th title="the automated check only sees decoded frames, not compositor / overlay output">Eyeball</th>
+      </tr>
+    </thead>
+    <tbody id="resultsBody"></tbody>
+  </table>
+  <p class="hint">
+    <strong>Why the "Eyeball" column exists:</strong> the canvas reads back the decoded frame.
+    If the numbers are clean but the screen still shows a green line, the defect lives in the
+    compositor or the video processor rather than in the decoder output. Note it as observed.
+  </p>
+</section>
+
+<section class="panel notes">
+  <h2>How to read the results</h2>
+  <ol>
+    <li><strong>Control group:</strong> if 1920x1088 and 720 are clean while 1920x886 is not, the trigger is the frame height, not the site or the content.</li>
+    <li><strong>Check the modulus:</strong> heights with <code>h % 8 != 0</code> fail while <code>h % 8 == 0</code> passes, so the granularity is the 8-row padding, not 16.</li>
+    <li><strong>Software decode:</strong> launch a separate profile with <code>--disable-accelerated-video-decode</code>. If every clip is clean, the defect is confined to the hardware path.</li>
+    <li><strong>Scaling:</strong> clean at 1:1 but green at 0.75x points at the video processor sampling outside the source rect. Zeroed NV12 (Y=0, U=V=0) renders as bright green, not black.</li>
+  </ol>
+  <pre class="code">"C:\Program Files\Google\Chrome\Application\chrome.exe" ^
+  --user-data-dir=%TEMP%\chrome-av1-sw ^
+  --disable-accelerated-video-decode ^
+  http://127.0.0.1:8777/</pre>
+  <p class="hint">
+    With software decode, <code>kVideoDecoderName</code> in <code>chrome://media-internals</code>
+    becomes <code>Dav1dVideoDecoder</code>; with hardware decode it is
+    <code>D3D11VideoDecoder</code> (or <code>D3DVideoDecoder</code>).
+  </p>
+</section>
+
+<script src="app.js"></script>
+</body>
+</html>
