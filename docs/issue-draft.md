@@ -97,11 +97,18 @@ Note that the CodedVideoFrame size reported by `chrome://media-internals` is alr
 
 ## Attachments checklist
 
-- [ ] `clips/av1_1920x886.mp4` and `clips/av1_1920x1088.mp4` (repro + control)
-- [ ] full `chrome://gpu` dump
-- [ ] `chrome://media-internals` JSON for the 886 clip
-- [ ] screenshot showing the green line at the top edge
-- [ ] screenshot of the same clip with `--disable-accelerated-video-decode` (clean)
+Already in the repo:
+
+- [x] repro screenshot: `screenshots/clip-h886.png`
+- [x] control screenshot: `screenshots/clip-h1088.png`
+- [x] full set, one per height: `screenshots/clip-h{884,886,888,890,720,1080,1088}.png`
+
+To attach manually:
+
+- [ ] `chrome://gpu` dump from the affected machine
+- [ ] `chrome://media-internals` JSON for the 886 clip (shows `D3D11VideoDecoder`,
+      `coded size = visible rect = 1920x886`, NV12, shared handle)
+- [ ] a short screen recording of the green line while the video plays
 
 ## Workarounds observed in the wild
 

@@ -74,6 +74,18 @@ canvas, and reports which of the top/bottom 24 rows contain "green" pixels plus 
 Why the page needs HTTP: a `file://` page has an opaque origin, so drawing the video into a canvas
 taints it and `getImageData` throws.
 
+## Observed result
+
+Captured with `node tools/shot.js` at 1:1 CSS pixels on the machine below.
+
+| 1920x886 — 4-row green band across the top | 1920x1088 — control |
+| --- | --- |
+| ![1920x886](screenshots/clip-h886.png) | ![1920x1088](screenshots/clip-h1088.png) |
+
+The full set (`h884`, `h886`, `h888`, `h890`, `h720`, `h1080`, `h1088`) is in `screenshots/`.
+Each image shows the full frame plus the top and bottom 24 rows magnified 6x, where the band is
+unmistakable.
+
 ## Screenshots
 
 ```powershell
@@ -86,8 +98,8 @@ clip it asks the page to start playback, waits for the page to report that the f
 actually on screen, calls `Page.captureScreenshot` (the API DevTools itself uses), then asks for
 the next clip. No manual screenshots, no fixed sleeps.
 
-For a bug report you only need two of them: `clip-h886.png` (green band) and `clip-h1088.png`
-(control).
+The images in `screenshots/` are the output of that command, committed so the evidence does not
+depend on rebuilding the clips.
 
 ## Test matrix
 
@@ -136,6 +148,7 @@ index.html, style.css, app.js   test page: plays clips, reports when a frame is 
 serve.js                        zero-dependency static server with Range support
 tools/make-clips.ps1            generates clips/ with ffmpeg + libaom
 tools/shot.js                   plays every clip and saves a screenshot of each (~1.5 s)
+screenshots/                    captured output, committed as evidence
 docs/issue-draft.md             ready-to-paste Chromium bug report with this data
 ```
 
@@ -144,3 +157,4 @@ docs/issue-draft.md             ready-to-paste Chromium bug report with this dat
 ## License
 
 MIT
+
